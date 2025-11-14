@@ -5,11 +5,13 @@ import json
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from scipy.stats import mannwhitneyu, bootstrap
+import numpy as np
 
 def natural_sort_key(texto):
     return [int(c) if c.isdigit() else c for c in re.split(r'(\d+)', texto)]
 
-def extrair_palavras(texto):
+def extrair_palavras(texto): #extrai as palavras e separa as consideradas e não consideradas. As consideradas são as que tem 3 ou mais letras.
     if not texto or not texto.strip():
         return [], []
     todas_palavras = re.findall(r'\b\w+\b', texto.lower())  # todas as palavras
@@ -17,12 +19,19 @@ def extrair_palavras(texto):
     palavras_nao_identificadas = [p for p in todas_palavras if not re.match(r'[a-zà-ÿ]{3,}', p, re.IGNORECASE)]
     return palavras_identificadas, palavras_nao_identificadas
 
-def calcular_ttr(palavras_identificadas):
+def calcular_ttr(palavras_identificadas): #calculo diversidade
     if not palavras_identificadas:
         return 0.0
     return len(set(palavras_identificadas)) / len(palavras_identificadas)
 
-def processar_data():
+def calcular_ic(dados, func=np.mean): #calculo intervalo de confiança 95%
+    dados = (np.array(dados),)
+    if len(dados[0]) < 2:
+        return None
+    result = bootstrap(dados, func, confidence_level=0.95, n_resamples=10000, method='percentile')
+    return result.confidence_interval.low, result.confidence_interval.high
+
+def processar_data(): #processamento arquivos do data (dataset com os comandos tematicos originais)
     caminho_base = "Data"
     ttrs = []
     palavras_nao_identificadas_total = set()
@@ -36,7 +45,6 @@ def processar_data():
                 try:
                     tree = ET.parse(arquivo_path)
                     root_element = tree.getroot()
-                    # Busca recursiva da tag <body>
                     body_element = root_element.find('.//body')
                     if body_element is not None:
                         texto_body = (body_element.text or "").strip()
@@ -60,7 +68,7 @@ def processar_data():
         f_out.write("\n".join(sorted(palavras_nao_identificadas_total)))
     return ttrs
 
-def processar_qwenmax():
+def processar_qwenmax(): #processamento arquivos do qwen max (dataset com os comandos tematicos sinteticos)
     pasta = "QwenMax"
     ttrs = []
     palavras_nao_identificadas_total = set()
@@ -97,7 +105,7 @@ def processar_qwenmax():
         f_out.write("\n".join(sorted(palavras_nao_identificadas_total)))
     return ttrs
 
-def plotar_ttr_boxplots(ttrs_qwenmax, ttrs_data):
+def plotar_ttr_boxplots(ttrs_qwenmax, ttrs_data): #blox-splot
     colors = ['#1f77b4', '#add8e6']  # azul escuro (QwenMax) e azul claro (Data)
     labels = ['QwenMax', 'Data']
 
@@ -131,6 +139,19 @@ def plotar_ttr_boxplots(ttrs_qwenmax, ttrs_data):
 def main():
     ttrs_qwenmax = processar_qwenmax()
     ttrs_data = processar_data()
+
+    # Cálculo do p-value e intervalo de confiança
+    if len(ttrs_qwenmax) >= 2 and len(ttrs_data) >= 2:
+        p_valor = mannwhitneyu(ttrs_qwenmax, ttrs_data, alternative='greater').pvalue
+        ic_qwenmax = calcular_ic(ttrs_qwenmax)
+        ic_data = calcular_ic(ttrs_data)
+        print(f"\nAnálise estatística:")
+        print(f"p-valor (Data > QwenMax): {p_valor:.15f}")
+        print(f"Intervalo de Confiança QwenMax (95%): {ic_qwenmax}")
+        print(f"Intervalo de Confiança Data (95%): {ic_data}")
+    else:
+        print("Dados insuficientes para análise estatística.")
+
     plotar_ttr_boxplots(ttrs_qwenmax, ttrs_data)
 
 if __name__ == "__main__":
